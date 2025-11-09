@@ -6,13 +6,14 @@ name: Go
 on:
   push:
     branches: [ "main" ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
 
 env:
   GO_VERSION: 1.25.3
-  VERSION: 0.1.0
 
 jobs:
 
@@ -74,7 +75,7 @@ jobs:
   create-release:
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     
     steps:
     - name: Checkout code
@@ -91,10 +92,10 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         files: ./build/*
-        tag_name: v${{ env.VERSION }}
-        name: Release v${{ env.VERSION }}
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
         body: |
-          ## Playground Tools CLI v${{ env.VERSION }}
+          ## Playground Tools CLI ${{ github.ref_name }}
 
           Cross-platform binaries for Linux, macOS (Intel & ARM), and Windows.
 
