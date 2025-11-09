@@ -1,0 +1,109 @@
+# This workflow will build a golang project
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-go
+
+name: Go
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: 1.25.3
+  VERSION: 0.1.0
+
+jobs:
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Test
+      run: go test -v ./...
+
+  build:
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            platform: linux-amd64
+          - goos: darwin
+            goarch: amd64
+            platform: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            platform: darwin-arm64
+          - goos: windows
+            goarch: amd64
+            platform: windows-amd64
+            extension: .exe
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Build
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      run: |
+        mkdir -p build
+        go build -v -o build/go-playground-cli-${{ matrix.platform }}${{ matrix.extension || '' }}
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: go-playground-cli-${{ matrix.platform }}
+        path: build/go-playground-cli-${{ matrix.platform }}${{ matrix.extension || '' }}
+        retention-days: 7
+
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./build
+        pattern: go-playground-cli-*
+        merge-multiple: true
+
+    - name: Create Release and Upload Artifacts
+      uses: softprops/action-gh-release@v2
+      with:
+        files: ./build/*
+        tag_name: v${{ env.VERSION }}
+        name: Release v${{ env.VERSION }}
+        body: |
+          ## Playground Tools CLI v${{ env.VERSION }}
+
+          Cross-platform binaries for Linux, macOS (Intel & ARM), and Windows.
+
+          ### Download the appropriate binary for your platform:
+          - **Linux**: `go-playground-cli-linux-amd64`
+          - **macOS Intel**: `go-playground-cli-darwin-amd64`
+          - **macOS Apple Silicon**: `go-playground-cli-darwin-arm64`
+          - **Windows**: `go-playground-cli-windows-amd64.exe`
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
