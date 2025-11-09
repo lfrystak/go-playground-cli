@@ -12,6 +12,7 @@ on:
 
 env:
   GO_VERSION: 1.25.3
+  VERSION: 0.1.0
 
 jobs:
 
@@ -69,3 +70,40 @@ jobs:
         name: go-playground-cli-${{ matrix.platform }}
         path: build/go-playground-cli-${{ matrix.platform }}${{ matrix.extension || '' }}
         retention-days: 7
+
+  create-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./build
+        pattern: go-playground-cli-*
+        merge-multiple: true
+
+    - name: Create Release and Upload Artifacts
+      uses: softprops/action-gh-release@v2
+      with:
+        files: ./build/*
+        tag_name: v${{ env.VERSION }}
+        name: Release v${{ env.VERSION }}
+        body: |
+          ## Playground Tools CLI v${{ env.VERSION }}
+
+          Cross-platform binaries for Linux, macOS (Intel & ARM), and Windows.
+
+          ### Download the appropriate binary for your platform:
+          - **Linux**: `go-playground-cli-linux-amd64`
+          - **macOS Intel**: `go-playground-cli-darwin-amd64`
+          - **macOS Apple Silicon**: `go-playground-cli-darwin-arm64`
+          - **Windows**: `go-playground-cli-windows-amd64.exe`
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
