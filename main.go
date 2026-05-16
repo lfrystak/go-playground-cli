@@ -25,13 +25,12 @@ const (
 	maxAgeOffset = -5 * time.Minute
 )
 
-type ceActivityResponse struct {
+type ceActivityPaging struct {
 	Paging struct {
 		PageIndex int `json:"pageIndex"`
 		PageSize  int `json:"pageSize"`
 		Total     int `json:"total"`
 	} `json:"paging"`
-	Tasks []json.RawMessage `json:"tasks"`
 }
 
 func main() {
@@ -67,15 +66,15 @@ func main() {
 	authHeader := buildAuthHeader(*token, *basicAuth)
 
 	fmt.Println("Fetching page 1...")
-	firstPage, err := fetchPage(client, *host, authHeader, maxAge, 1)
+	firstBody, firstPaging, err := fetchPage(client, *host, authHeader, maxAge, 1)
 	if err != nil {
 		log.Fatalf("Failed to fetch page 1: %v", err)
 	}
-	if err := savePage(*outputDir, 1, firstPage); err != nil {
+	if err := savePage(*outputDir, 1, firstBody); err != nil {
 		log.Fatalf("Failed to save page 1: %v", err)
 	}
 
-	total := firstPage.Paging.Total
+	total := firstPaging.Paging.Total
 	totalPages := int(math.Ceil(float64(total) / float64(pageSize)))
 	fmt.Printf("Total tasks: %d across %d page(s)\n", total, totalPages)
 
@@ -102,8 +101,8 @@ func fetchPagesParallel(client *http.Client, host, authHeader, maxAge, outputDir
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			fmt.Printf("Fetching page %d/%d...\n", p, to)
-			data, err := fetchPage(client, host, authHeader, maxAge, p)
+			//fmt.Printf("Fetching page %d/%d...\n", p, to)
+			body, _, err := fetchPage(client, host, authHeader, maxAge, p)
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
@@ -112,7 +111,7 @@ func fetchPagesParallel(client *http.Client, host, authHeader, maxAge, outputDir
 				mu.Unlock()
 				return
 			}
-			if err := savePage(outputDir, p, data); err != nil {
+			if err := savePage(outputDir, p, body); err != nil {
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = fmt.Errorf("save page %d: %w", p, err)
@@ -126,7 +125,7 @@ func fetchPagesParallel(client *http.Client, host, authHeader, maxAge, outputDir
 	return firstErr
 }
 
-func fetchPage(client *http.Client, host, authHeader, maxAge string, page int) (*ceActivityResponse, error) {
+func fetchPage(client *http.Client, host, authHeader, maxAge string, page int) ([]byte, *ceActivityPaging, error) {
 	endpoint := strings.TrimRight(host, "/") + "/" + ceActivityAPI
 	params := url.Values{
 		"ps":            {fmt.Sprintf("%d", pageSize)},
@@ -137,49 +136,41 @@ func fetchPage(client *http.Client, host, authHeader, maxAge string, page int) (
 
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
+		return nil, nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Authorization", authHeader)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("HTTP request: %w", err)
+		return nil, nil, fmt.Errorf("HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	switch resp.StatusCode {
 	case http.StatusUnauthorized:
-		return nil, fmt.Errorf("authentication failed (401): verify your token")
+		return nil, nil, fmt.Errorf("authentication failed (401): verify your token")
 	case http.StatusForbidden:
-		return nil, fmt.Errorf("permission denied (403): insufficient privileges")
+		return nil, nil, fmt.Errorf("permission denied (403): insufficient privileges")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status %s", resp.Status)
+		return nil, nil, fmt.Errorf("unexpected status %s", resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
+		return nil, nil, fmt.Errorf("read response body: %w", err)
 	}
 
-	var result ceActivityResponse
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	var paging ceActivityPaging
+	if err := json.Unmarshal(body, &paging); err != nil {
+		return nil, nil, fmt.Errorf("decode response: %w", err)
 	}
-	return &result, nil
+	return body, &paging, nil
 }
 
-func savePage(dir string, page int, data *ceActivityResponse) error {
+func savePage(dir string, page int, body []byte) error {
 	path := filepath.Join(dir, fmt.Sprintf("background-tasks-page-%04d.json", page))
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	return enc.Encode(data)
+	return os.WriteFile(path, body, 0o644)
 }
 
 func prepareOutputDir(dir string) error {
