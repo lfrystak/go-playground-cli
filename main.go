@@ -62,7 +62,7 @@ func main() {
 		log.Fatalf("Failed to prepare output directory: %v", err)
 	}
 
-	maxAge := time.Now().Add(maxAgeOffset).Format(time.RFC3339)
+	maxAge := time.Now().Add(maxAgeOffset).Format("2006-01-02T15:04:05-0700")
 	client := &http.Client{Timeout: httpTimeout}
 	authHeader := buildAuthHeader(*token, *basicAuth)
 
